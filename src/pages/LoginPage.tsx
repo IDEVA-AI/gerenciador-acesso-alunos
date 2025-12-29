@@ -102,7 +102,7 @@ const LoginPage = ({ onLogin }: LoginPageProps) => {
               <Input
                 id="username"
                 type="text"
-                placeholder="seu_usuario"
+                placeholder="Usuário"
                 value={username}
                 onChange={(e) => {
                   setUsername(e.target.value);
