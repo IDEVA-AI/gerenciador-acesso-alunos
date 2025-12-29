@@ -1,45 +1,79 @@
-import { useState } from 'react';
-import { X, User, Mail, FileText, CheckCircle, XCircle, UserPlus } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
+import { useEffect, useState } from "react";
+import { User, Mail, FileText, CheckCircle, XCircle, UserPlus, Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
 import {
   Sheet,
   SheetContent,
   SheetDescription,
   SheetHeader,
   SheetTitle,
-} from '@/components/ui/sheet';
-import { HotmartPurchase, findStudentByDocument, Student } from '@/data/mockData';
-import { toast } from '@/hooks/use-toast';
+} from "@/components/ui/sheet";
+import { toast } from "@/hooks/use-toast";
+import { fetchStudentByDocumentOrEmail, registerStudentFromHotmart } from "@/services/student";
+import { HotmartPurchase, StudentRecord } from "@/types/domain";
 
 interface VerificationDrawerProps {
   purchase: HotmartPurchase | null;
   isOpen: boolean;
+  onStudentRegistered?: (student: StudentRecord) => void;
   onClose: () => void;
 }
 
-const VerificationDrawer = ({ purchase, isOpen, onClose }: VerificationDrawerProps) => {
+const VerificationDrawer = ({ purchase, isOpen, onClose, onStudentRegistered }: VerificationDrawerProps) => {
   const [isRegistering, setIsRegistering] = useState(false);
-  
-  if (!purchase) return null;
-  
-  const existingStudent = findStudentByDocument(purchase.buyerDocument);
-  
+  const [student, setStudent] = useState<StudentRecord | null>(null);
+  const [isLoadingStudent, setIsLoadingStudent] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!purchase || !isOpen) return;
+
+    const loadStudent = async () => {
+      setIsLoadingStudent(true);
+      setLoadError(null);
+      try {
+        const found = await fetchStudentByDocumentOrEmail({
+          document: purchase.buyerDocument,
+          email: purchase.buyerEmail,
+        });
+        setStudent(found);
+      } catch (error: any) {
+        setLoadError(error?.message || "Não foi possível verificar o aluno.");
+      } finally {
+        setIsLoadingStudent(false);
+      }
+    };
+
+    void loadStudent();
+  }, [purchase, isOpen]);
+
   const handleRegister = async () => {
     setIsRegistering(true);
     
-    // Simulate registration
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    
-    setIsRegistering(false);
-    
-    toast({
-      title: 'Aluno cadastrado com sucesso!',
-      description: `${purchase.buyerName} foi adicionado ao sistema.`,
-    });
-    
-    onClose();
+    try {
+      const { student: createdStudent, alreadyExists } = await registerStudentFromHotmart(purchase);
+      setStudent(createdStudent);
+      onStudentRegistered?.(createdStudent);
+
+      toast({
+        title: alreadyExists ? "Aluno já existe" : "Aluno cadastrado com sucesso!",
+        description: alreadyExists
+          ? "Já existe um cadastro para esse CPF/E-mail."
+          : `${purchase.buyerName} foi adicionado ao sistema com plano ativo.`,
+        variant: alreadyExists ? "default" : "default",
+      });
+
+      onClose();
+    } catch (error: any) {
+      toast({
+        title: "Erro ao cadastrar",
+        description: error?.message || "Não foi possível cadastrar o aluno.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsRegistering(false);
+    }
   };
 
   const StatusBadge = ({ active, label }: { active: boolean; label: string }) => (
@@ -50,6 +84,7 @@ const VerificationDrawer = ({ purchase, isOpen, onClose }: VerificationDrawerPro
   );
 
   return (
+    !purchase ? null : (
     <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
         <SheetHeader>
@@ -107,7 +142,16 @@ const VerificationDrawer = ({ purchase, isOpen, onClose }: VerificationDrawerPro
               Status Interno
             </h3>
             
-            {existingStudent ? (
+            {isLoadingStudent ? (
+              <div className="flex items-center gap-3 text-muted-foreground">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Verificando aluno na base interna...</span>
+              </div>
+            ) : loadError ? (
+              <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4 text-destructive">
+                {loadError}
+              </div>
+            ) : student ? (
               <div className="space-y-4">
                 <div className="bg-success/10 border border-success/20 rounded-lg p-4">
                   <div className="flex items-center gap-2 mb-3">
@@ -120,18 +164,18 @@ const VerificationDrawer = ({ purchase, isOpen, onClose }: VerificationDrawerPro
                 </div>
                 
                 <div className="flex gap-2 flex-wrap">
-                  <StatusBadge active={existingStudent.planActive} label={existingStudent.planActive ? 'Plano Ativo' : 'Plano Inativo'} />
-                  <StatusBadge active={existingStudent.active} label={existingStudent.active ? 'Conta Ativa' : 'Conta Inativa'} />
+                  <StatusBadge active={student.planActive} label={student.planActive ? 'Plano Ativo' : 'Plano Inativo'} />
+                  <StatusBadge active={student.active} label={student.active ? 'Conta Ativa' : 'Conta Inativa'} />
                 </div>
                 
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Tipo de Documento</span>
-                    <span>{existingStudent.documentType}</span>
+                    <span>{student.documentType}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Cadastrado em</span>
-                    <span>{new Date(existingStudent.createdAt).toLocaleDateString('pt-BR')}</span>
+                    <span>{new Date(student.createdAt).toLocaleDateString('pt-BR')}</span>
                   </div>
                 </div>
               </div>
@@ -198,6 +242,7 @@ const VerificationDrawer = ({ purchase, isOpen, onClose }: VerificationDrawerPro
         </div>
       </SheetContent>
     </Sheet>
+    )
   );
 };
 

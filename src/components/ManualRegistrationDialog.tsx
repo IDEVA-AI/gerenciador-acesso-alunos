@@ -1,8 +1,8 @@
-import { useState } from 'react';
-import { UserPlus } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { useState } from "react";
+import { UserPlus } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
@@ -10,22 +10,25 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog';
-import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
-import { formatCPF, validateCPF } from '@/utils/cpf';
-import { findStudentByDocument } from '@/data/mockData';
-import { toast } from '@/hooks/use-toast';
+} from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import { formatCPF, validateCPF } from "@/utils/cpf";
+import { toast } from "@/hooks/use-toast";
+import { registerManualStudent } from "@/services/student";
+import { StudentRecord } from "@/types/domain";
 
 interface ManualRegistrationDialogProps {
   isOpen: boolean;
   onClose: () => void;
+  onStudentRegistered?: (student: StudentRecord) => void;
 }
 
-const ManualRegistrationDialog = ({ isOpen, onClose }: ManualRegistrationDialogProps) => {
-  const [name, setName] = useState('');
-  const [cpf, setCpf] = useState('');
-  const [errors, setErrors] = useState<{ name?: string; cpf?: string }>({});
+const ManualRegistrationDialog = ({ isOpen, onClose, onStudentRegistered }: ManualRegistrationDialogProps) => {
+  const [name, setName] = useState("");
+  const [cpf, setCpf] = useState("");
+  const [email, setEmail] = useState("");
+  const [errors, setErrors] = useState<{ name?: string; cpf?: string; email?: string }>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleCpfChange = (value: string) => {
@@ -38,28 +41,30 @@ const ManualRegistrationDialog = ({ isOpen, onClose }: ManualRegistrationDialogP
     if (errors.name) setErrors((prev) => ({ ...prev, name: undefined }));
   };
 
+  const validateEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+
   const handleSubmit = async () => {
-    const newErrors: { name?: string; cpf?: string } = {};
+    const newErrors: { name?: string; cpf?: string; email?: string } = {};
     
     if (!name.trim()) {
-      newErrors.name = 'Nome é obrigatório';
+      newErrors.name = "Nome é obrigatório";
     } else if (name.trim().length < 3) {
-      newErrors.name = 'Nome deve ter pelo menos 3 caracteres';
+      newErrors.name = "Nome deve ter pelo menos 3 caracteres";
     }
     
+    if (!email.trim()) {
+      newErrors.email = "E-mail é obrigatório";
+    } else if (!validateEmail(email)) {
+      newErrors.email = "E-mail inválido";
+    }
+
     const cleanedCpf = cpf.replace(/\D/g, '');
     if (!cleanedCpf) {
-      newErrors.cpf = 'CPF é obrigatório';
+      newErrors.cpf = "CPF é obrigatório";
     } else if (cleanedCpf.length !== 11) {
-      newErrors.cpf = 'CPF deve ter 11 dígitos';
+      newErrors.cpf = "CPF deve ter 11 dígitos";
     } else if (!validateCPF(cpf)) {
-      newErrors.cpf = 'CPF inválido';
-    } else {
-      // Check for duplicates
-      const existingStudent = findStudentByDocument(cpf);
-      if (existingStudent) {
-        newErrors.cpf = 'Este CPF já está cadastrado no sistema';
-      }
+      newErrors.cpf = "CPF inválido";
     }
     
     setErrors(newErrors);
@@ -67,26 +72,39 @@ const ManualRegistrationDialog = ({ isOpen, onClose }: ManualRegistrationDialogP
     if (Object.keys(newErrors).length === 0) {
       setIsSubmitting(true);
       
-      // Simulate registration
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      
-      setIsSubmitting(false);
-      
-      toast({
-        title: 'Aluno cadastrado com sucesso!',
-        description: `${name} foi adicionado ao sistema com plano ativo.`,
-      });
-      
-      // Reset form
-      setName('');
-      setCpf('');
-      onClose();
+      try {
+        const { student, alreadyExists } = await registerManualStudent({
+          name,
+          cpf,
+          email,
+        });
+
+        toast({
+          title: alreadyExists ? "Aluno já existe" : "Aluno cadastrado com sucesso!",
+          description: alreadyExists
+            ? "Já existe um cadastro para este CPF ou e-mail."
+            : `${name} foi adicionado ao sistema com plano ativo.`,
+          variant: alreadyExists ? "default" : "default",
+        });
+
+        onStudentRegistered?.(student);
+        handleClose();
+      } catch (error: any) {
+        toast({
+          title: "Erro ao cadastrar",
+          description: error?.message || "Não foi possível cadastrar o aluno.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsSubmitting(false);
+      }
     }
   };
 
   const handleClose = () => {
-    setName('');
-    setCpf('');
+    setName("");
+    setCpf("");
+    setEmail("");
     setErrors({});
     onClose();
   };
@@ -109,10 +127,27 @@ const ManualRegistrationDialog = ({ isOpen, onClose }: ManualRegistrationDialogP
               placeholder="Digite o nome completo"
               value={name}
               onChange={(e) => handleNameChange(e.target.value)}
-              className={errors.name ? 'border-destructive focus-visible:ring-destructive' : ''}
+              className={errors.name ? "border-destructive focus-visible:ring-destructive" : ""}
             />
             {errors.name && (
               <p className="text-sm text-destructive">{errors.name}</p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="email">E-mail</Label>
+            <Input
+              id="email"
+              placeholder="email@exemplo.com"
+              value={email}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                if (errors.email) setErrors((prev) => ({ ...prev, email: undefined }));
+              }}
+              className={errors.email ? "border-destructive focus-visible:ring-destructive" : ""}
+            />
+            {errors.email && (
+              <p className="text-sm text-destructive">{errors.email}</p>
             )}
           </div>
           
@@ -123,7 +158,7 @@ const ManualRegistrationDialog = ({ isOpen, onClose }: ManualRegistrationDialogP
               placeholder="000.000.000-00"
               value={cpf}
               onChange={(e) => handleCpfChange(e.target.value)}
-              className={errors.cpf ? 'border-destructive focus-visible:ring-destructive' : ''}
+              className={errors.cpf ? "border-destructive focus-visible:ring-destructive" : ""}
             />
             {errors.cpf && (
               <p className="text-sm text-destructive">{errors.cpf}</p>

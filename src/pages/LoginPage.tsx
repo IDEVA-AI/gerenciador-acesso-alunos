@@ -1,51 +1,83 @@
-import { useState } from 'react';
-import { Eye, EyeOff, LogIn, Shield } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Label } from '@/components/ui/label';
+import { useState } from "react";
+import { Eye, EyeOff, LogIn, Shield } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { toast } from "@/hooks/use-toast";
+import { getUserProfile, signInWithUsername } from "@/services/auth";
 
 interface LoginPageProps {
   onLogin: () => void;
 }
 
 const LoginPage = ({ onLogin }: LoginPageProps) => {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
+  const [errors, setErrors] = useState<{ username?: string; password?: string }>({});
   const [isLoading, setIsLoading] = useState(false);
-
-  const validateEmail = (email: string): boolean => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    const newErrors: { email?: string; password?: string } = {};
+    const newErrors: { username?: string; password?: string } = {};
     
-    if (!email.trim()) {
-      newErrors.email = 'E-mail é obrigatório';
-    } else if (!validateEmail(email)) {
-      newErrors.email = 'E-mail inválido';
+    if (!username.trim()) {
+      newErrors.username = "Usuário é obrigatório";
+    } else if (username.trim().length < 3) {
+      newErrors.username = "Usuário deve ter pelo menos 3 caracteres";
     }
     
     if (!password.trim()) {
-      newErrors.password = 'Senha é obrigatória';
+      newErrors.password = "Senha é obrigatória";
     } else if (password.length < 6) {
-      newErrors.password = 'Senha deve ter pelo menos 6 caracteres';
+      newErrors.password = "Senha deve ter pelo menos 6 caracteres";
     }
     
     setErrors(newErrors);
     
     if (Object.keys(newErrors).length === 0) {
       setIsLoading(true);
-      // Simulate login delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      setIsLoading(false);
-      onLogin();
+
+      try {
+        const normalized = username.trim().toLowerCase();
+        const { error, user } = await signInWithUsername(normalized, password);
+
+        if (error || !user) {
+          setErrors({ password: "Credenciais inválidas" });
+          toast({
+            title: "Falha no login",
+            description: error?.message || "Usuário ou senha inválidos.",
+            variant: "destructive",
+          });
+          setIsLoading(false);
+          return;
+        }
+
+        if (user.active === false) {
+          setErrors({ username: "Usuário sem permissão para acessar o sistema" });
+          toast({
+            title: "Acesso não autorizado",
+            description: "Seu perfil está inativo ou sem permissão para este sistema.",
+            variant: "destructive",
+          });
+          setIsLoading(false);
+          return;
+        }
+
+        localStorage.setItem("afm:isLoggedIn", "true");
+        localStorage.setItem("afm:username", normalized);
+        setIsLoading(false);
+        onLogin();
+      } catch (err: any) {
+        setIsLoading(false);
+        toast({
+          title: "Erro ao autenticar",
+          description: err.message || "Não foi possível validar suas credenciais.",
+          variant: "destructive",
+        });
+      }
     }
   };
 
@@ -66,20 +98,20 @@ const LoginPage = ({ onLogin }: LoginPageProps) => {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="email">E-mail</Label>
+              <Label htmlFor="username">Usuário</Label>
               <Input
-                id="email"
-                type="email"
-                placeholder="seu@email.com"
-                value={email}
+                id="username"
+                type="text"
+                placeholder="seu_usuario"
+                value={username}
                 onChange={(e) => {
-                  setEmail(e.target.value);
-                  if (errors.email) setErrors((prev) => ({ ...prev, email: undefined }));
+                  setUsername(e.target.value);
+                  if (errors.username) setErrors((prev) => ({ ...prev, username: undefined }));
                 }}
-                className={errors.email ? 'border-destructive focus-visible:ring-destructive' : ''}
+                className={errors.username ? "border-destructive focus-visible:ring-destructive" : ""}
               />
-              {errors.email && (
-                <p className="text-sm text-destructive">{errors.email}</p>
+              {errors.username && (
+                <p className="text-sm text-destructive">{errors.username}</p>
               )}
             </div>
             
@@ -88,14 +120,14 @@ const LoginPage = ({ onLogin }: LoginPageProps) => {
               <div className="relative">
                 <Input
                   id="password"
-                  type={showPassword ? 'text' : 'password'}
+                  type={showPassword ? "text" : "password"}
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => {
                     setPassword(e.target.value);
                     if (errors.password) setErrors((prev) => ({ ...prev, password: undefined }));
                   }}
-                  className={`pr-10 ${errors.password ? 'border-destructive focus-visible:ring-destructive' : ''}`}
+                  className={`pr-10 ${errors.password ? "border-destructive focus-visible:ring-destructive" : ""}`}
                 />
                 <button
                   type="button"

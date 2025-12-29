@@ -1,14 +1,14 @@
-import { useState, useEffect } from 'react';
-import { Search, Loader2, FileSearch, UserPlus } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { useState, useEffect } from "react";
+import { Search, Loader2, FileSearch, UserPlus } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -16,15 +16,18 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table';
-import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { HotmartPurchase, searchPurchases, findStudentByDocument, mockHotmartPurchases } from '@/data/mockData';
-import { formatCPF } from '@/utils/cpf';
-import VerificationDrawer from '@/components/VerificationDrawer';
-import ManualRegistrationDialog from '@/components/ManualRegistrationDialog';
+} from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { toast } from "@/hooks/use-toast";
+import { fetchHotmartPurchases, HotmartSearchType } from "@/services/hotmart";
+import { fetchStudentsByDocuments } from "@/services/student";
+import { HotmartPurchase, StudentRecord } from "@/types/domain";
+import { cleanCPF, formatCPF, validateCPF } from "@/utils/cpf";
+import VerificationDrawer from "@/components/VerificationDrawer";
+import ManualRegistrationDialog from "@/components/ManualRegistrationDialog";
 
-type SearchType = 'cpf' | 'email' | 'name';
+type SearchType = HotmartSearchType;
 
 const Dashboard = () => {
   const [searchType, setSearchType] = useState<SearchType>('cpf');
@@ -35,6 +38,7 @@ const Dashboard = () => {
   const [selectedPurchase, setSelectedPurchase] = useState<HotmartPurchase | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isManualDialogOpen, setIsManualDialogOpen] = useState(false);
+  const [studentsMap, setStudentsMap] = useState<Record<string, StudentRecord>>({});
 
   const handleInputChange = (value: string) => {
     if (searchType === 'cpf') {
@@ -48,18 +52,69 @@ const Dashboard = () => {
     setSearchQuery('');
   }, [searchType]);
 
+  const validateEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+
   const handleSearch = async () => {
-    if (!searchQuery.trim()) return;
-    
+    if (!searchQuery.trim()) {
+      toast({
+        title: "Campo obrigatório",
+        description: "Campo de busca não pode ser vazio.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (searchType === "cpf" && !validateCPF(searchQuery)) {
+      toast({
+        title: "CPF inválido",
+        description: "CPF deve ser válido para consulta.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (searchType === "email" && !validateEmail(searchQuery)) {
+      toast({
+        title: "E-mail inválido",
+        description: "Forneça um e-mail válido para consulta.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsSearching(true);
     setHasSearched(true);
     
-    // Simulate API delay
-    await new Promise((resolve) => setTimeout(resolve, 800));
-    
-    const searchResults = searchPurchases(searchQuery, searchType);
-    setResults(searchResults);
-    setIsSearching(false);
+    try {
+      const searchResults = await fetchHotmartPurchases(
+        searchType as HotmartSearchType,
+        searchQuery
+      );
+      setResults(searchResults);
+
+      const documents = searchResults.map((purchase) => cleanCPF(purchase.buyerDocument)).filter(Boolean);
+
+      if (documents.length) {
+        const fetchedStudents = await fetchStudentsByDocuments(documents);
+        const map = fetchedStudents.reduce<Record<string, StudentRecord>>((acc, student) => {
+          acc[cleanCPF(student.documentNumber)] = student;
+          return acc;
+        }, {});
+        setStudentsMap(map);
+      } else {
+        setStudentsMap({});
+      }
+    } catch (error: any) {
+      toast({
+        title: "Erro na consulta",
+        description: error?.message || "Não foi possível consultar as compras.",
+        variant: "destructive",
+      });
+      setResults([]);
+      setStudentsMap({});
+    } finally {
+      setIsSearching(false);
+    }
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -73,20 +128,31 @@ const Dashboard = () => {
     setIsDrawerOpen(true);
   };
 
-  const getStatusBadge = (status: HotmartPurchase['status']) => {
-    const variants: Record<typeof status, { className: string; label: string }> = {
-      approved: { className: 'bg-success text-success-foreground', label: 'Aprovado' },
-      pending: { className: 'bg-warning text-warning-foreground', label: 'Pendente' },
-      refunded: { className: 'bg-destructive text-destructive-foreground', label: 'Reembolsado' },
-      cancelled: { className: 'bg-muted text-muted-foreground', label: 'Cancelado' },
+  const handleStudentRegistered = (student: StudentRecord) => {
+    const key = cleanCPF(student.documentNumber);
+    setStudentsMap((prev) => ({ ...prev, [key]: student }));
+  };
+
+  const getStatusBadge = (status: HotmartPurchase["status"] | undefined) => {
+    const normalized = status?.toString().toLowerCase().trim() || "";
+    const variants: Record<string, { className: string; label: string }> = {
+      approved: { className: "bg-success text-success-foreground", label: "Aprovado" },
+      pending: { className: "bg-warning text-warning-foreground", label: "Pendente" },
+      refunded: { className: "bg-destructive text-destructive-foreground", label: "Reembolsado" },
+      cancelled: { className: "bg-muted text-muted-foreground", label: "Cancelado" },
+      "compra expirada": { className: "bg-destructive text-destructive-foreground", label: "Compra Expirada" },
+      "boleto impresso": { className: "bg-warning text-warning-foreground", label: "Boleto Impresso" },
     };
-    
-    const variant = variants[status];
+
+    const variant = variants[normalized];
+    if (!variant) {
+      return <Badge variant="outline">{status || "Status desconhecido"}</Badge>;
+    }
     return <Badge className={variant.className}>{variant.label}</Badge>;
   };
 
   const getInternalStatus = (purchase: HotmartPurchase) => {
-    const student = findStudentByDocument(purchase.buyerDocument);
+    const student = studentsMap[cleanCPF(purchase.buyerDocument)];
     if (student) {
       return <Badge variant="outline" className="border-success text-success">Cadastrado</Badge>;
     }
@@ -204,7 +270,7 @@ const Dashboard = () => {
                   </TableHeader>
                   <TableBody>
                     {results.map((purchase) => {
-                      const isNotRegistered = !findStudentByDocument(purchase.buyerDocument);
+                      const isNotRegistered = !studentsMap[cleanCPF(purchase.buyerDocument)];
                       return (
                         <TableRow key={purchase.id}>
                           <TableCell>
@@ -242,6 +308,7 @@ const Dashboard = () => {
       <VerificationDrawer
         purchase={selectedPurchase}
         isOpen={isDrawerOpen}
+        onStudentRegistered={handleStudentRegistered}
         onClose={() => {
           setIsDrawerOpen(false);
           setSelectedPurchase(null);
@@ -251,6 +318,7 @@ const Dashboard = () => {
       {/* Manual Registration Dialog */}
       <ManualRegistrationDialog
         isOpen={isManualDialogOpen}
+        onStudentRegistered={handleStudentRegistered}
         onClose={() => setIsManualDialogOpen(false)}
       />
     </div>

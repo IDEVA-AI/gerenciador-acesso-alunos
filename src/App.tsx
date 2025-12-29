@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -12,6 +12,13 @@ const queryClient = new QueryClient();
 
 const App = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+
+  useEffect(() => {
+    const stored = localStorage.getItem("afm:isLoggedIn");
+    setIsLoggedIn(stored === "true");
+    setIsAuthReady(true);
+  }, []);
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -19,30 +26,36 @@ const App = () => {
         <Toaster />
         <Sonner />
         <BrowserRouter>
-          <Routes>
-            <Route
-              path="/login"
-              element={
-                isLoggedIn ? (
-                  <Navigate to="/dashboard" replace />
-                ) : (
-                  <LoginPage onLogin={() => setIsLoggedIn(true)} />
-                )
-              }
-            />
-            <Route
-              path="/dashboard"
-              element={
-                isLoggedIn ? (
-                  <Dashboard />
-                ) : (
-                  <Navigate to="/login" replace />
-                )
-              }
-            />
-            <Route path="/" element={<Navigate to={isLoggedIn ? '/dashboard' : '/login'} replace />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
+          {isAuthReady ? (
+            <Routes>
+              <Route
+                path="/login"
+                element={
+                  isLoggedIn ? (
+                    <Navigate to="/dashboard" replace />
+                  ) : (
+                    <LoginPage onLogin={() => setIsLoggedIn(true)} />
+                  )
+                }
+              />
+              <Route
+                path="/dashboard"
+                element={
+                  isLoggedIn ? (
+                    <Dashboard />
+                  ) : (
+                    <Navigate to="/login" replace />
+                  )
+                }
+              />
+              <Route path="/" element={<Navigate to={isLoggedIn ? "/dashboard" : "/login"} replace />} />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          ) : (
+            <div className="min-h-screen flex items-center justify-center bg-background text-foreground">
+              Sincronizando sessão...
+            </div>
+          )}
         </BrowserRouter>
       </TooltipProvider>
     </QueryClientProvider>
