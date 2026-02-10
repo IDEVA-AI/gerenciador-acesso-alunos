@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
-import { Search, Loader2, FileSearch, UserPlus } from "lucide-react";
+import { Search, Loader2, FileSearch, UserPlus, LogOut } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { signOut } from "@/services/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -29,7 +31,12 @@ import ManualRegistrationDialog from "@/components/ManualRegistrationDialog";
 
 type SearchType = HotmartSearchType;
 
-const Dashboard = () => {
+interface DashboardProps {
+  onLogout: () => void;
+}
+
+const Dashboard = ({ onLogout }: DashboardProps) => {
+  const navigate = useNavigate();
   const [searchType, setSearchType] = useState<SearchType>('cpf');
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
@@ -170,6 +177,13 @@ const Dashboard = () => {
     }
   };
 
+  const handleLogout = async () => {
+    await signOut();
+    localStorage.removeItem("afm:isLoggedIn");
+    onLogout();
+    navigate("/login");
+  };
+
   return (
     <div className="min-h-screen bg-background p-6">
       <div className="max-w-7xl mx-auto space-y-6">
@@ -181,10 +195,16 @@ const Dashboard = () => {
               Busque compras da Hotmart e gerencie acessos dos alunos
             </p>
           </div>
-          <Button onClick={() => setIsManualDialogOpen(true)} variant="outline">
-            <UserPlus className="w-4 h-4 mr-2" />
-            Cadastro Manual
-          </Button>
+          <div className="flex gap-2">
+            <Button onClick={() => setIsManualDialogOpen(true)} variant="outline">
+              <UserPlus className="w-4 h-4 mr-2" />
+              Cadastro Manual
+            </Button>
+            <Button onClick={handleLogout} variant="outline">
+              <LogOut className="w-4 h-4 mr-2" />
+              Sair
+            </Button>
+          </div>
         </div>
 
         {/* Search Bar */}

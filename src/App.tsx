@@ -42,7 +42,7 @@ const App = () => {
                 path="/dashboard"
                 element={
                   isLoggedIn ? (
-                    <Dashboard />
+                    <Dashboard onLogout={() => setIsLoggedIn(false)} />
                   ) : (
                     <Navigate to="/login" replace />
                   )
